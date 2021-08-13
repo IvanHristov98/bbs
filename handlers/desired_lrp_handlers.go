@@ -27,6 +27,7 @@ type DesiredLRPHandler struct {
 	serviceClient        serviceclient.ServiceClient
 	updateWorkersCount   int
 	exitChan             chan<- struct{}
+	logger               lager.Logger
 }
 
 func NewDesiredLRPHandler(
@@ -40,6 +41,7 @@ func NewDesiredLRPHandler(
 	repClientFactory rep.ClientFactory,
 	serviceClient serviceclient.ServiceClient,
 	exitChan chan<- struct{},
+	logger lager.Logger,
 ) *DesiredLRPHandler {
 	return &DesiredLRPHandler{
 		desiredLRPDB:         desiredLRPDB,
@@ -52,6 +54,7 @@ func NewDesiredLRPHandler(
 		serviceClient:        serviceClient,
 		updateWorkersCount:   updateWorkersCount,
 		exitChan:             exitChan,
+		logger:               logger,
 	}
 }
 
@@ -296,6 +299,7 @@ func (h *DesiredLRPHandler) createUnclaimedActualLRPs(ctx context.Context, logge
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               h.logger,
 	}
 
 	works := make([]func(), count)

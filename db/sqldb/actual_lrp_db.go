@@ -279,6 +279,7 @@ func (db *SQLDB) StartActualLRP(ctx context.Context, logger lager.Logger, key *m
 		var err error
 		actualLRP, err = db.fetchActualLRPForUpdate(ctx, logger, key.ProcessGuid, key.Index, models.ActualLRP_Ordinary, tx)
 		if err == models.ErrResourceNotFound {
+			logger.Error("fetch-actual-lrp-for-update-in-vain", err)
 			actualLRP, err = db.createRunningActualLRP(ctx, logger, key, instanceKey, netInfo, tx)
 			return err
 		}
@@ -296,6 +297,33 @@ func (db *SQLDB) StartActualLRP(ctx context.Context, logger lager.Logger, key *m
 			actualLRP.State == models.ActualLRPStateRunning {
 			logger.Debug("nothing-to-change")
 			return nil
+		}
+
+		logger.Debug("something-to-change")
+
+		if !actualLRP.ActualLRPNetInfo.Equal(netInfo) {
+			logger.Debug("netinfo-diff", lager.Data{
+				"old_address": actualLRP.ActualLRPNetInfo.Address, "old_instance_address": actualLRP.ActualLRPNetInfo.InstanceAddress,
+				"address": netInfo.Address, "instance_address": netInfo.InstanceAddress,
+			})
+		}
+
+		if !actualLRP.ActualLRPInstanceKey.Equal(instanceKey) {
+			logger.Debug("actual-lrp-instance-key-diff", lager.Data{
+				"old_cell_id": actualLRP.ActualLRPInstanceKey.CellId, "old_instance_guid": actualLRP.ActualLRPInstanceKey.InstanceGuid,
+				"cell_id": instanceKey.CellId, "instance_guid": instanceKey.InstanceGuid,
+			})
+		}
+
+		if actualLRP.State != models.ActualLRPStateRunning {
+			logger.Debug("state-not-running-diff", lager.Data{"state": actualLRP.State})
+		}
+
+		if !actualLRP.ActualLRPKey.Equal(key) {
+			logger.Debug("key-not-equal-diff", lager.Data{
+				"old_domain": actualLRP.ActualLRPKey.Domain, "old_index": actualLRP.ActualLRPKey.Index, "old_proc_guid": actualLRP.ActualLRPKey.ProcessGuid,
+				"domain": key.Domain, "index": key.Index, "proc_guid": key.ProcessGuid,
+			})
 		}
 
 		if !actualLRP.AllowsTransitionTo(key, instanceKey, models.ActualLRPStateRunning) {

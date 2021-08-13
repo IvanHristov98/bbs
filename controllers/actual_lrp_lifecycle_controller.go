@@ -71,6 +71,7 @@ func (h *ActualLRPLifecycleController) ClaimActualLRP(ctx context.Context, logge
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 
 	lrps, err := h.db.ActualLRPs(ctx, logger, models.ActualLRPFilter{ProcessGuid: processGUID, Index: &index})
@@ -95,6 +96,8 @@ func (h *ActualLRPLifecycleController) ClaimActualLRP(ctx context.Context, logge
 	}
 
 	newLRPs := eventCalculator.RecordChange(before, after, lrps)
+
+	logger.Debug("claim-actual-lrp-ctl")
 	go eventCalculator.EmitEvents(lrps, newLRPs)
 
 	return nil
@@ -104,6 +107,7 @@ func (h *ActualLRPLifecycleController) StartActualLRP(ctx context.Context, logge
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 
 	lrps, err := h.db.ActualLRPs(ctx, logger, models.ActualLRPFilter{ProcessGuid: actualLRPKey.ProcessGuid, Index: &actualLRPKey.Index})
@@ -131,6 +135,7 @@ func (h *ActualLRPLifecycleController) StartActualLRP(ctx context.Context, logge
 	newLRPs := eventCalculator.RecordChange(before, after, lrps)
 
 	defer func() {
+		logger.Debug("start-actual-lrp-ctl")
 		go eventCalculator.EmitEvents(lrps, newLRPs)
 	}()
 
@@ -165,6 +170,7 @@ func (h *ActualLRPLifecycleController) CrashActualLRP(ctx context.Context, logge
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 
 	lrp := lookupLRPInSlice(lrps, actualLRPInstanceKey)
@@ -187,6 +193,7 @@ func (h *ActualLRPLifecycleController) CrashActualLRP(ctx context.Context, logge
 	}
 
 	afterLRPs := eventCalculator.RecordChange(before, after, lrps)
+	logger.Debug("crash-actual-lrp-ctl")
 	go eventCalculator.EmitEvents(lrps, afterLRPs)
 
 	if !shouldRestart {
@@ -224,9 +231,11 @@ func (h *ActualLRPLifecycleController) FailActualLRP(ctx context.Context, logger
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 
 	newLRPs := eventCalculator.RecordChange(before, after, lrps)
+	logger.Debug("fail-actual-lrp-ctl")
 	go eventCalculator.EmitEvents(lrps, newLRPs)
 
 	return nil
@@ -251,9 +260,11 @@ func (h *ActualLRPLifecycleController) RemoveActualLRP(ctx context.Context, logg
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 
 	newLRPs := eventCalculator.RecordChange(lrp, nil, beforeLRPs)
+	logger.Debug("remove-actual-lrp-ctl")
 	go eventCalculator.EmitEvents(beforeLRPs, newLRPs)
 
 	return nil
@@ -273,6 +284,7 @@ func (h *ActualLRPLifecycleController) RetireActualLRP(ctx context.Context, logg
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 
 	lrp := findWithPresence(lrps, models.ActualLRP_Ordinary)
@@ -284,6 +296,7 @@ func (h *ActualLRPLifecycleController) RetireActualLRP(ctx context.Context, logg
 	copy(newLRPs, lrps)
 
 	defer func() {
+		logger.Debug("retire-actual-lrp-ctl")
 		go eventCalculator.EmitEvents(lrps, newLRPs)
 	}()
 

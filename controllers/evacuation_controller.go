@@ -50,11 +50,13 @@ func (h *EvacuationController) RemoveEvacuatingActualLRP(ctx context.Context, lo
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 
 	newLRPs := make([]*models.ActualLRP, len(actualLRPs))
 	copy(newLRPs, actualLRPs)
 	defer func() {
+		logger.Debug("remove-evac-actual-lrp")
 		go eventCalculator.EmitEvents(actualLRPs, newLRPs)
 	}()
 
@@ -139,6 +141,7 @@ func (h *EvacuationController) EvacuateClaimedActualLRP(ctx context.Context, log
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 
 	guid := actualLRPKey.ProcessGuid
@@ -153,6 +156,7 @@ func (h *EvacuationController) EvacuateClaimedActualLRP(ctx context.Context, log
 	copy(newLRPs, actualLRPs)
 
 	defer func() {
+		logger.Debug("evac-claimed-actual-lrp")
 		go eventCalculator.EmitEvents(actualLRPs, newLRPs)
 	}()
 
@@ -186,6 +190,7 @@ func (h *EvacuationController) EvacuateCrashedActualLRP(ctx context.Context, log
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 
 	guid := actualLRPKey.ProcessGuid
@@ -201,6 +206,7 @@ func (h *EvacuationController) EvacuateCrashedActualLRP(ctx context.Context, log
 	copy(newLRPs, actualLRPs)
 
 	defer func() {
+		logger.Debug("evac-crashed-actual-lrp")
 		go eventCalculator.EmitEvents(actualLRPs, newLRPs)
 	}()
 
@@ -242,6 +248,7 @@ func (h *EvacuationController) EvacuateRunningActualLRP(ctx context.Context, log
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 	guid := actualLRPKey.ProcessGuid
 	index := actualLRPKey.Index
@@ -259,6 +266,7 @@ func (h *EvacuationController) EvacuateRunningActualLRP(ctx context.Context, log
 	copy(newLRPs, actualLRPs)
 
 	defer func() {
+		logger.Debug("evac-running-actual-lrp")
 		go eventCalculator.EmitEvents(actualLRPs, newLRPs)
 	}()
 
@@ -333,6 +341,7 @@ func (h *EvacuationController) EvacuateStoppedActualLRP(ctx context.Context, log
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 
 	guid := actualLRPKey.ProcessGuid
@@ -348,6 +357,7 @@ func (h *EvacuationController) EvacuateStoppedActualLRP(ctx context.Context, log
 	copy(newLRPs, actualLRPs)
 
 	defer func() {
+		logger.Debug("evac-stopped-actual-lrp")
 		go eventCalculator.EmitEvents(actualLRPs, newLRPs)
 	}()
 
@@ -392,6 +402,7 @@ func (h *EvacuationController) evacuateInstance(ctx context.Context, logger lage
 	eventCalculator := calculator.ActualLRPEventCalculator{
 		ActualLRPGroupHub:    h.actualHub,
 		ActualLRPInstanceHub: h.actualLRPInstanceHub,
+		Logger:               logger,
 	}
 
 	evacuating, err := h.db.EvacuateActualLRP(ctx, logger, &actualLRP.ActualLRPKey, &actualLRP.ActualLRPInstanceKey, &actualLRP.ActualLRPNetInfo)
@@ -407,6 +418,7 @@ func (h *EvacuationController) evacuateInstance(ctx context.Context, logger lage
 	newLRPs := eventCalculator.RecordChange(actualLRP, evacuating, allLRPs)
 
 	defer func() {
+		logger.Debug("evac-instance")
 		go eventCalculator.EmitEvents(allLRPs, newLRPs)
 	}()
 

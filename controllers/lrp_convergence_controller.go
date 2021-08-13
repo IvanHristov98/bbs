@@ -89,11 +89,13 @@ func (h *LRPConvergenceController) ConvergeLRPs(ctx context.Context, logger lage
 
 	events := convergenceResult.Events
 	for _, e := range events {
+		logger.Debug("send-event-events")
 		go h.actualHub.Emit(e)
 	}
 
 	instanceEvents := convergenceResult.InstanceEvents
 	for _, e := range instanceEvents {
+		logger.Debug("send-lrp-instance-hub-for-instance-events")
 		go h.actualLRPInstanceHub.Emit(e)
 	}
 
@@ -156,7 +158,9 @@ func (h *LRPConvergenceController) ConvergeLRPs(ctx context.Context, logger lage
 				return
 			}
 
+			logger.Debug("send-missing-lrp-keys-event")
 			go h.actualHub.Emit(models.NewActualLRPCreatedEvent(lrp.ToActualLRPGroup()))
+			logger.Debug("send-missing-actual-lrp-keys-event")
 			go h.actualLRPInstanceHub.Emit(models.NewActualLRPInstanceCreatedEvent(lrp))
 
 			startRequest := auctioneer.NewLRPStartRequestFromSchedulingInfo(dereferencedKey.SchedulingInfo, int(dereferencedKey.Key.Index))
@@ -214,6 +218,7 @@ func (h *LRPConvergenceController) ConvergeLRPs(ctx context.Context, logger lage
 				}
 
 				//emit instance events for removing suspect and creating unclaimed
+				logger.Debug("emit-keys-with-missing-cells-part-1")
 				go func() {
 					h.actualLRPInstanceHub.Emit(models.NewActualLRPInstanceCreatedEvent(after))
 					h.actualLRPInstanceHub.Emit(models.NewActualLRPInstanceRemovedEvent(before))
@@ -227,6 +232,7 @@ func (h *LRPConvergenceController) ConvergeLRPs(ctx context.Context, logger lage
 				logger.Error("cannot-change-lrp-presence", err, lager.Data{"key": dereferencedKey})
 				return
 			}
+			logger.Debug("emit-keys-with-missing-cells-part-2")
 			go h.actualLRPInstanceHub.Emit(models.NewActualLRPInstanceChangedEvent(before, after))
 
 			unclaimed, err := h.lrpDB.CreateUnclaimedActualLRP(ctx, logger.Session("create-unclaimed-actual"), dereferencedKey.Key)
@@ -234,6 +240,7 @@ func (h *LRPConvergenceController) ConvergeLRPs(ctx context.Context, logger lage
 				logger.Error("cannot-unclaim-lrp", err)
 				return
 			}
+			logger.Debug("emit-keys-with-missing-cells-part-3")
 			go h.actualLRPInstanceHub.Emit(models.NewActualLRPInstanceCreatedEvent(unclaimed))
 
 			startRequest := auctioneer.NewLRPStartRequestFromSchedulingInfo(dereferencedKey.SchedulingInfo, int(dereferencedKey.Key.Index))
@@ -262,6 +269,7 @@ func (h *LRPConvergenceController) ConvergeLRPs(ctx context.Context, logger lage
 				return
 			}
 
+			logger.Debug("suspect-keys-with-existing-cells-fish")
 			go h.actualLRPInstanceHub.Emit(models.NewActualLRPInstanceChangedEvent(before, after))
 		})
 	}
@@ -276,6 +284,7 @@ func (h *LRPConvergenceController) ConvergeLRPs(ctx context.Context, logger lage
 				return
 			}
 
+			logger.Debug("send-suspect-lrp-keys-to-retire-event")
 			go h.actualHub.Emit(models.NewActualLRPRemovedEvent(suspectLRP.ToActualLRPGroup()))
 			go h.actualLRPInstanceHub.Emit(models.NewActualLRPInstanceRemovedEvent(suspectLRP))
 		})

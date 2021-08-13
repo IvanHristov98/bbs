@@ -3,6 +3,7 @@ package sqldb
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"code.cloudfoundry.org/bbs/db/sqldb/helpers"
 	"code.cloudfoundry.org/bbs/format"
@@ -32,13 +33,13 @@ func (db *SQLDB) PerformEncryption(ctx context.Context, logger lager.Logger) err
 
 	funcs := []func(){
 		func() {
-			errCh <- db.reEncrypt(ctx, logger, tasksTable, "guid", true, "task_definition")
+			errCh <- db.reEncrypt(ctx, logger, tasksTable, []string{"guid"}, true, "task_definition")
 		},
 		func() {
-			errCh <- db.reEncrypt(ctx, logger, desiredLRPsTable, "process_guid", true, "run_info", "volume_placement", "routes")
+			errCh <- db.reEncrypt(ctx, logger, desiredLRPsTable, []string{"process_guid"}, true, "run_info", "volume_placement", "routes")
 		},
 		func() {
-			errCh <- db.reEncrypt(ctx, logger, actualLRPsTable, "process_guid", false, "net_info")
+			errCh <- db.reEncrypt(ctx, logger, actualLRPsTable, []string{"process_guid", "instance_index", "presence"}, false, "net_info")
 		},
 	}
 
@@ -55,19 +56,23 @@ func (db *SQLDB) PerformEncryption(ctx context.Context, logger lager.Logger) err
 	return nil
 }
 
-func (db *SQLDB) reEncrypt(ctx context.Context, logger lager.Logger, tableName, primaryKey string, encryptIfEmpty bool, blobColumns ...string) error {
+func (db *SQLDB) reEncrypt(ctx context.Context, logger lager.Logger, tableName string, primaryKey []string, encryptIfEmpty bool, blobColumns ...string) error {
 	logger = logger.WithData(
 		lager.Data{"table_name": tableName, "primary_key": primaryKey, "blob_columns": blobColumns},
 	)
-	rows, err := db.db.QueryContext(ctx, fmt.Sprintf("SELECT %s FROM %s", primaryKey, tableName))
+
+	attributes := strings.Join(primaryKey, ", ")
+	rows, err := db.db.QueryContext(ctx, fmt.Sprintf("SELECT %s FROM %s", attributes, tableName))
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
-	guids := []string{}
+	guids := [][]interface{}{}
 	for rows.Next() {
-		var guid string
+		guid := make([]interface{}, len(primaryKey))
+
+		// var guid string
 		err := rows.Scan(&guid)
 		if err != nil {
 			logger.Error("failed-to-scan-primary-key", err)
@@ -76,12 +81,19 @@ func (db *SQLDB) reEncrypt(ctx context.Context, logger lager.Logger, tableName, 
 		guids = append(guids, guid)
 	}
 
-	where := fmt.Sprintf("%s = ?", primaryKey)
+	wheres := []string{}
+
+	for i := range primaryKey {
+		wheres = append(wheres, fmt.Sprintf("%s = ?", primaryKey[i]))
+	}
+
+	where := strings.Join(wheres, ", ")
+
 	for _, guid := range guids {
 		err = db.transact(ctx, logger, func(logger lager.Logger, tx helpers.Tx) error {
 			blobs := make([]interface{}, len(blobColumns))
 
-			row := db.one(ctx, logger, tx, tableName, blobColumns, helpers.LockRow, where, guid)
+			row := db.one(ctx, logger, tx, tableName, blobColumns, helpers.LockRow, where, guid...)
 			for i := range blobColumns {
 				var blob []byte
 				blobs[i] = &blob
@@ -122,7 +134,7 @@ func (db *SQLDB) reEncrypt(ctx context.Context, logger lager.Logger, tableName, 
 			}
 			_, err = db.update(ctx, logger, tx, tableName,
 				updatedColumnValues,
-				where, guid,
+				where, guid...,
 			)
 			if err != nil {
 				logger.Error("failed-to-update-blob", err)

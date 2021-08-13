@@ -5,6 +5,7 @@ import (
 
 	"code.cloudfoundry.org/bbs/events"
 	"code.cloudfoundry.org/bbs/models"
+	"code.cloudfoundry.org/lager"
 )
 
 // LRP Instance Constraints:
@@ -76,6 +77,7 @@ import (
 type ActualLRPEventCalculator struct {
 	ActualLRPGroupHub    events.Hub // DEPRECATED
 	ActualLRPInstanceHub events.Hub
+	Logger               lager.Logger
 }
 
 // EmitEvents emits the events such as when the changes identified in the
@@ -88,7 +90,7 @@ func (e ActualLRPEventCalculator) EmitEvents(beforeSet, afterSet []*models.Actua
 	beforeGroup := models.ResolveActualLRPGroup(beforeSet)
 	afterGroup := models.ResolveActualLRPGroup(removeNilLRPs(afterSet))
 
-	for _, ev := range generateLRPGroupEvents(beforeGroup, afterGroup) {
+	for _, ev := range generateLRPGroupEvents(beforeGroup, afterGroup, e.Logger) {
 		e.ActualLRPGroupHub.Emit(ev)
 	}
 
@@ -98,7 +100,7 @@ func (e ActualLRPEventCalculator) EmitEvents(beforeSet, afterSet []*models.Actua
 	stretchSlice(&beforeSet, &afterSet)
 
 	for i := range afterSet {
-		events = append(events, generateLRPInstanceEvents(beforeSet[i], afterSet[i])...)
+		events = append(events, generateLRPInstanceEvents(beforeSet[i], afterSet[i], e.Logger)...)
 	}
 
 	sort.Slice(events, func(i, j int) bool {
@@ -172,7 +174,7 @@ func generateUnclaimedInstanceEvents(before, after *models.ActualLRP) []models.E
 	)
 }
 
-func generateLRPInstanceEvents(before, after *models.ActualLRP) []models.Event {
+func generateLRPInstanceEvents(before, after *models.ActualLRP, logger lager.Logger) []models.Event {
 	if before.Equal(after) {
 		// nothing changed
 		return nil
@@ -188,12 +190,16 @@ func generateLRPInstanceEvents(before, after *models.ActualLRP) []models.Event {
 
 	switch after.State {
 	case models.ActualLRPStateUnclaimed:
+		logger.Debug("actual-lrp-state-unclaimed-debug")
 		return generateUnclaimedInstanceEvents(before, after)
 	case models.ActualLRPStateClaimed:
+		logger.Debug("actual-lrp-state-claimed-debug")
 		return generateUpdateInstanceEvents(before, after)
 	case models.ActualLRPStateRunning:
+		logger.Debug("actual-lrp-state-running-debug")
 		return generateUpdateInstanceEvents(before, after)
 	case models.ActualLRPStateCrashed:
+		logger.Debug("actual-lrp-state-crashed-debug")
 		return generateCrashedInstanceEvents(before, after)
 	default:
 		return nil
@@ -239,7 +245,7 @@ func generateUpdateGroupEvents(before, after *models.ActualLRP) []models.Event {
 // (besides using different event types) is that the latter generates a
 // remove+create events when the LRP is unclaimed.  This function return a
 // ActualLRPChangedEvent instead to be compatible with old subscribers.
-func generateLRPInstanceGroupEvents(before, after *models.ActualLRP) []models.Event {
+func generateLRPInstanceGroupEvents(before, after *models.ActualLRP, logger lager.Logger) []models.Event {
 	if before.Equal(after) {
 		// nothing changed
 		return nil
@@ -255,12 +261,16 @@ func generateLRPInstanceGroupEvents(before, after *models.ActualLRP) []models.Ev
 
 	switch after.State {
 	case models.ActualLRPStateUnclaimed:
+		logger.Debug("actual-lrp-state-unclaimed-old")
 		return generateUnclaimedGroupEvents(before, after)
 	case models.ActualLRPStateClaimed:
+		logger.Debug("actual-lrp-state-claimed-old")
 		return generateUpdateGroupEvents(before, after)
 	case models.ActualLRPStateRunning:
+		logger.Debug("actual-lrp-state-update-old")
 		return generateUpdateGroupEvents(before, after)
 	case models.ActualLRPStateCrashed:
+		logger.Debug("actual-lrp-state-crashed-old")
 		return generateCrashedGroupEvents(before, after)
 	default:
 		return nil
@@ -315,9 +325,9 @@ func EventScore(e models.Event) int {
 	return 0
 }
 
-func generateLRPGroupEvents(before, after *models.ActualLRPGroup) []models.Event {
-	events := generateLRPInstanceGroupEvents(before.Instance, after.Instance)
-	events = append(events, generateLRPInstanceGroupEvents(before.Evacuating, after.Evacuating)...)
+func generateLRPGroupEvents(before, after *models.ActualLRPGroup, logger lager.Logger) []models.Event {
+	events := generateLRPInstanceGroupEvents(before.Instance, after.Instance, logger)
+	events = append(events, generateLRPInstanceGroupEvents(before.Evacuating, after.Evacuating, logger)...)
 
 	sort.Slice(events, func(i, j int) bool {
 		return EventScore(events[i]) > EventScore(events[j])

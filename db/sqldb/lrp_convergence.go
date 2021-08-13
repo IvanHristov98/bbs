@@ -39,6 +39,21 @@ func (sqldb *SQLDB) ConvergeLRPs(ctx context.Context, logger lager.Logger, cellS
 	converge.suspectClaimedActualLRPs(ctx, logger)
 	converge.crashedActualLRPs(ctx, logger, now)
 
+	debugData := lager.Data{
+		"missingLRPKeys":               len(converge.missingLRPKeys),
+		"unstartedLRPKeys":             len(converge.unstartedLRPKeys),
+		"keysToRetire":                 len(converge.keysToRetire),
+		"suspectKeysToRetire":          len(converge.suspectKeysToRetire),
+		"ordinaryKeysWithMissingCells": len(converge.ordinaryKeysWithMissingCells),
+		"missingCellIds":               len(converge.missingCellIds),
+		"events":                       len(events),
+		"instanceEvents":               len(instanceEvents),
+		"suspectKeysWithExistingCells": len(converge.suspectKeysWithExistingCells),
+		"suspectRunningKeys":           len(converge.suspectRunningKeys),
+		"suspectClaimedKeys":           len(converge.suspectClaimedKeys),
+	}
+	logger.Debug("convergence-summary", debugData)
+
 	return db.ConvergenceResult{
 		MissingLRPKeys:               converge.missingLRPKeys,
 		UnstartedLRPKeys:             converge.unstartedLRPKeys,

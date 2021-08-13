@@ -93,6 +93,8 @@ func (hub *hub) Emit(event models.Event) {
 		}
 	}
 
+	hub.logger.Debug("send-event-bottom", lager.Data{"type": event.EventType()})
+
 	var cb func(int)
 	if len(hub.subscribers) != size {
 		cb = hub.cb
