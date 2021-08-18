@@ -3,6 +3,7 @@ package sqldb
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"code.cloudfoundry.org/bbs/db/sqldb/helpers"
@@ -11,6 +12,11 @@ import (
 )
 
 const EncryptionKeyID = "encryption_key_label"
+
+type primaryKey struct {
+	attribNames []string
+	attribTypes []reflect.Type
+}
 
 func (db *SQLDB) SetEncryptionKeyLabel(ctx context.Context, logger lager.Logger, label string) error {
 	logger = logger.Session("db-set-encrption-key-label", lager.Data{"label": label})
@@ -33,13 +39,33 @@ func (db *SQLDB) PerformEncryption(ctx context.Context, logger lager.Logger) err
 
 	funcs := []func(){
 		func() {
-			errCh <- db.reEncrypt(ctx, logger, tasksTable, []string{"guid"}, true, "task_definition")
+			var guid string
+			key := primaryKey{
+				attribNames: []string{"guid"},
+				attribTypes: []reflect.Type{reflect.TypeOf(guid)},
+			}
+
+			errCh <- db.reEncrypt(ctx, logger, tasksTable, key, true, "task_definition")
 		},
 		func() {
-			errCh <- db.reEncrypt(ctx, logger, desiredLRPsTable, []string{"process_guid"}, true, "run_info", "volume_placement", "routes")
+			var process_guid string
+			key := primaryKey{
+				attribNames: []string{"process_guid"},
+				attribTypes: []reflect.Type{reflect.TypeOf(process_guid)},
+			}
+
+			errCh <- db.reEncrypt(ctx, logger, desiredLRPsTable, key, true, "run_info", "volume_placement", "routes")
 		},
 		func() {
-			errCh <- db.reEncrypt(ctx, logger, actualLRPsTable, []string{"process_guid", "instance_index", "presence"}, false, "net_info")
+			var process_guid string
+			var instance_index int
+			var presence int
+			key := primaryKey{
+				attribNames: []string{"process_guid", "instance_index", "presence"},
+				attribTypes: []reflect.Type{reflect.TypeOf(process_guid), reflect.TypeOf(instance_index), reflect.TypeOf(presence)},
+			}
+
+			errCh <- db.reEncrypt(ctx, logger, actualLRPsTable, key, false, "net_info")
 		},
 	}
 
@@ -56,44 +82,68 @@ func (db *SQLDB) PerformEncryption(ctx context.Context, logger lager.Logger) err
 	return nil
 }
 
-func (db *SQLDB) reEncrypt(ctx context.Context, logger lager.Logger, tableName string, primaryKey []string, encryptIfEmpty bool, blobColumns ...string) error {
+func (db *SQLDB) reEncrypt(ctx context.Context, logger lager.Logger, tableName string, key primaryKey, encryptIfEmpty bool, blobColumns ...string) error {
 	logger = logger.WithData(
-		lager.Data{"table_name": tableName, "primary_key": primaryKey, "blob_columns": blobColumns},
+		lager.Data{"table_name": tableName, "primary_key": key.attribNames, "blob_columns": blobColumns},
 	)
 
-	attributes := strings.Join(primaryKey, ", ")
+	attributes := strings.Join(key.attribNames, ", ")
+	logger.Debug("reencrypt-select-query", lager.Data{"query": fmt.Sprintf("SELECT %s FROM %s", attributes, tableName)})
+
 	rows, err := db.db.QueryContext(ctx, fmt.Sprintf("SELECT %s FROM %s", attributes, tableName))
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
-	guids := [][]interface{}{}
+	recordKeys := [][]interface{}{}
+
 	for rows.Next() {
-		guid := make([]interface{}, len(primaryKey))
+		recordKeyAsPtr := make([]interface{}, len(key.attribNames))
+		logger.Debug("cryptoguid-before", lager.Data{"guid": recordKeyAsPtr})
+
+		// Convert pointers of unknown type to their values.
+		for i := 0; i < len(key.attribNames); i++ {
+			recordKeyAsPtr[i] = reflect.New(key.attribTypes[i]).Interface()
+		}
 
 		// var guid string
-		err := rows.Scan(&guid)
+		err := rows.Scan(recordKeyAsPtr...)
 		if err != nil {
 			logger.Error("failed-to-scan-primary-key", err)
 			continue
 		}
-		guids = append(guids, guid)
+
+		logger.Debug("cryptoguid-after", lager.Data{"guid": recordKeyAsPtr})
+
+		recordKey := make([]interface{}, len(key.attribNames))
+
+		// Convert pointers of unknown type to their values.
+		for i := 0; i < len(key.attribNames); i++ {
+			recordKeyAsPtrVal := reflect.ValueOf(recordKeyAsPtr[i])
+			recordKey[i] = recordKeyAsPtrVal.Elem().Interface()
+		}
+
+		recordKeys = append(recordKeys, recordKey)
 	}
+
+	logger.Debug("cryptoguids", lager.Data{"length": len(recordKeys)})
 
 	wheres := []string{}
 
-	for i := range primaryKey {
-		wheres = append(wheres, fmt.Sprintf("%s = ?", primaryKey[i]))
+	for i := range key.attribNames {
+		wheres = append(wheres, fmt.Sprintf("%s = ?", key.attribNames[i]))
 	}
 
-	where := strings.Join(wheres, ", ")
+	where := strings.Join(wheres, " AND ")
+	logger.Debug("reencrypt-where", lager.Data{"where": where})
 
-	for _, guid := range guids {
+	for _, recordKey := range recordKeys {
 		err = db.transact(ctx, logger, func(logger lager.Logger, tx helpers.Tx) error {
 			blobs := make([]interface{}, len(blobColumns))
 
-			row := db.one(ctx, logger, tx, tableName, blobColumns, helpers.LockRow, where, guid...)
+			logger.Debug("reencrypt-guid-range", lager.Data{"guid": recordKey})
+			row := db.one(ctx, logger, tx, tableName, blobColumns, helpers.LockRow, where, recordKey...)
 			for i := range blobColumns {
 				var blob []byte
 				blobs[i] = &blob
@@ -123,6 +173,9 @@ func (db *SQLDB) reEncrypt(ctx context.Context, logger lager.Logger, tableName s
 					logger.Error("failed-to-decode-blob", err)
 					return nil
 				}
+
+				logger.Debug("reencrypt-payload", lager.Data{"payload": payload})
+
 				encryptedPayload, err := encoder.Encode(payload)
 				if err != nil {
 					logger.Error("failed-to-encode-blob", err)
@@ -134,7 +187,7 @@ func (db *SQLDB) reEncrypt(ctx context.Context, logger lager.Logger, tableName s
 			}
 			_, err = db.update(ctx, logger, tx, tableName,
 				updatedColumnValues,
-				where, guid...,
+				where, recordKey...,
 			)
 			if err != nil {
 				logger.Error("failed-to-update-blob", err)
